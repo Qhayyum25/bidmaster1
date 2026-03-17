@@ -57,6 +57,9 @@ app.use('/api/users', require('./routes/users'))
 app.use('/api/ai', require('./routes/ai'))
 app.use('/api/admin', require('./routes/admin'))
 
+// Root route — confirms API is running
+app.get('/', (_req, res) => res.json({ message: '🔨 BidMasters API is running', docs: '/api/health' }))
+
 // Health check
 app.get('/api/health', (_req, res) => res.json({ status: 'ok', time: new Date().toISOString() }))
 
