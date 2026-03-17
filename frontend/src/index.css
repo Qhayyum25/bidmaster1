@@ -1,0 +1,120 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * { box-sizing: border-box; }
+
+  :root {
+    --sidebar-width: 240px;
+    --header-height: 60px;
+  }
+
+  body {
+    font-family: 'Syne', system-ui, sans-serif;
+    background: #030712;
+    color: #f9fafb;
+    overflow-x: hidden;
+  }
+
+  ::-webkit-scrollbar { width: 4px; height: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: #374151; border-radius: 99px; }
+
+  .font-mono { font-family: 'JetBrains Mono', monospace; }
+}
+
+@layer components {
+  .card {
+    @apply bg-gray-900 border border-gray-800 rounded-xl;
+  }
+
+  .card-hover {
+    @apply transition-all duration-200 hover:border-amber-500/30 hover:shadow-lg hover:shadow-amber-500/5;
+  }
+
+  .btn-primary {
+    @apply bg-amber-500 hover:bg-amber-400 text-gray-950 font-semibold px-4 py-2 rounded-lg transition-all duration-150 active:scale-95;
+  }
+
+  .btn-secondary {
+    @apply bg-gray-800 hover:bg-gray-700 text-white font-medium px-4 py-2 rounded-lg transition-all duration-150 border border-gray-700 active:scale-95;
+  }
+
+  .btn-danger {
+    @apply bg-red-600 hover:bg-red-500 text-white font-medium px-4 py-2 rounded-lg transition-all duration-150 active:scale-95;
+  }
+
+  .badge {
+    @apply inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium;
+  }
+
+  .badge-live {
+    @apply bg-red-500/20 text-red-400 border border-red-500/30;
+  }
+
+  .badge-upcoming {
+    @apply bg-amber-500/20 text-amber-400 border border-amber-500/30;
+  }
+
+  .badge-ended {
+    @apply bg-gray-700/50 text-gray-400 border border-gray-700;
+  }
+
+  .badge-won {
+    @apply bg-emerald-500/20 text-emerald-400 border border-emerald-500/30;
+  }
+
+  .input {
+    @apply bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-amber-500 focus:border-amber-500 transition-all;
+  }
+
+  .live-dot {
+    @apply w-2 h-2 rounded-full bg-red-500 animate-pulse;
+  }
+
+  .stat-card {
+    @apply card p-4 flex flex-col gap-1;
+  }
+
+  .nav-item {
+    @apply flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-gray-400 hover:text-white hover:bg-gray-800/80 transition-all cursor-pointer;
+  }
+
+  .nav-item-active {
+    @apply bg-amber-500/10 text-amber-400 border border-amber-500/20;
+  }
+
+  .countdown {
+    @apply font-mono text-lg font-bold tabular-nums;
+  }
+
+  .bid-row {
+    @apply flex items-center justify-between py-2 border-b border-gray-800/50 last:border-0;
+  }
+
+  .shimmer {
+    background: linear-gradient(90deg, transparent, rgba(245,158,11,0.05), transparent);
+    background-size: 200% 100%;
+    animation: shimmer 2s infinite;
+  }
+
+  @keyframes shimmer {
+    0% { background-position: -200% 0; }
+    100% { background-position: 200% 0; }
+  }
+}
+
+@layer utilities {
+  .text-gradient {
+    @apply bg-gradient-to-r from-amber-400 to-amber-600 bg-clip-text text-transparent;
+  }
+
+  .border-gradient {
+    border-image: linear-gradient(135deg, #f59e0b33, transparent) 1;
+  }
+
+  .glow-amber {
+    box-shadow: 0 0 20px rgba(245, 158, 11, 0.15);
+  }
+}
