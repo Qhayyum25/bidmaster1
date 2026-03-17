@@ -9,13 +9,31 @@ const { startAuctionCron } = require('./utils/auctionCron')
 const app = express()
 const server = http.createServer(app)
 
+// ─── CORS origin helper ───────────────────────────────────────────────────────
+function isAllowedOrigin(origin) {
+  if (!origin) return true // allow server-to-server / curl
+  if (origin.includes('localhost')) return true
+  if (origin.endsWith('.vercel.app')) return true
+  const clientUrl = process.env.CLIENT_URL || ''
+  if (clientUrl && origin === clientUrl) return true
+  return false
+}
+
+const corsOptions = {
+  origin: (origin, cb) => {
+    if (isAllowedOrigin(origin)) cb(null, true)
+    else cb(new Error(`CORS blocked: ${origin}`))
+  },
+  credentials: true,
+}
+
 // ─── Socket.io ────────────────────────────────────────────────────────────────
 const io = new Server(server, {
-  cors: { origin: process.env.CLIENT_URL || 'http://localhost:5173', methods: ['GET', 'POST'] },
+  cors: { origin: (origin, cb) => cb(null, isAllowedOrigin(origin)), methods: ['GET', 'POST'] },
 })
 
 // ─── Middleware ───────────────────────────────────────────────────────────────
-app.use(cors({ origin: process.env.CLIENT_URL || 'http://localhost:5173', credentials: true }))
+app.use(cors(corsOptions))
 app.use(express.json())
 
 // Attach io to request so routes can emit events
