@@ -4,6 +4,7 @@ const http = require('http')
 const { Server } = require('socket.io')
 const cors = require('cors')
 const mongoose = require('mongoose')
+const { startAuctionCron } = require('./utils/auctionCron')
 
 const app = express()
 const server = http.createServer(app)
@@ -17,13 +18,17 @@ const io = new Server(server, {
 app.use(cors({ origin: process.env.CLIENT_URL || 'http://localhost:5173', credentials: true }))
 app.use(express.json())
 
-// Attach io to request for use in routes
+// Attach io to request so routes can emit events
 app.use((req, _res, next) => { req.io = io; next() })
 
 // ─── MongoDB ──────────────────────────────────────────────────────────────────
 const MONGO_URI = process.env.MONGO_URI || 'mongodb://localhost:27017/bidmasters'
 mongoose.connect(MONGO_URI)
-  .then(() => console.log('✅ MongoDB connected'))
+  .then(() => {
+    console.log('✅ MongoDB connected:', MONGO_URI)
+    // Start auction expiry cron AFTER DB is ready
+    startAuctionCron(io)
+  })
   .catch(err => console.warn('⚠️  MongoDB not connected — running without DB:', err.message))
 
 // ─── Routes ───────────────────────────────────────────────────────────────────
@@ -36,6 +41,15 @@ app.use('/api/admin', require('./routes/admin'))
 
 // Health check
 app.get('/api/health', (_req, res) => res.json({ status: 'ok', time: new Date().toISOString() }))
+
+// ─── 404 handler ─────────────────────────────────────────────────────────────
+app.use((_req, res) => res.status(404).json({ error: 'Route not found' }))
+
+// ─── Global error handler ────────────────────────────────────────────────────
+app.use((err, _req, res, _next) => {
+  console.error('Unhandled error:', err)
+  res.status(500).json({ error: 'Internal server error' })
+})
 
 // ─── Socket.io events ────────────────────────────────────────────────────────
 io.on('connection', (socket) => {

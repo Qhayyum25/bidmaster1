@@ -1,130 +1,160 @@
 import { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react'
-import { MOCK_AUCTIONS } from '../lib/mock-data'
+import { io as socketIO } from 'socket.io-client'
+import { auctionsApi, bidsApi } from '../lib/api'
 import { useNotifications } from './NotificationContext'
 
 const AuctionContext = createContext(null)
 
+const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:5000'
+
 export function AuctionProvider({ children }) {
-  const [auctions, setAuctions] = useState(() => JSON.parse(JSON.stringify(MOCK_AUCTIONS)))
-  const { addNotification } = useNotifications()
-  const intervalRef = useRef(null)
+  const [auctions, setAuctions]   = useState([])
+  const [loading, setLoading]     = useState(true)
+  const { addNotification }        = useNotifications()
+  const socketRef                  = useRef(null)
 
-  // Simulate real-time bid activity on live auctions
-  useEffect(() => {
-    const names = ['Priya S.', 'Rahul K.', 'Anjali M.', 'Vikram P.', 'Neha R.', 'Arjun D.', 'Kavya T.']
-
-    intervalRef.current = setInterval(() => {
-      setAuctions(prev => {
-        const updated = [...prev]
-        // Pick a random live auction to update
-        const liveIndices = updated
-          .map((a, i) => ({ a, i }))
-          .filter(({ a }) => a.status === 'live' && new Date(a.endTime) > Date.now())
-
-        if (liveIndices.length === 0) return prev
-
-        const { i } = liveIndices[Math.floor(Math.random() * liveIndices.length)]
-        const auction = { ...updated[i] }
-        const bids = [...auction.bids]
-
-        // 30% chance of a new bot bid
-        if (Math.random() < 0.3) {
-          const increment = auction.currentBid < 100000 ? 500 + Math.floor(Math.random() * 2000)
-            : auction.currentBid < 500000 ? 2000 + Math.floor(Math.random() * 8000)
-            : 5000 + Math.floor(Math.random() * 20000)
-
-          const newBid = {
-            id: `b_${Date.now()}`,
-            userId: `bot_${Math.random().toString(36).substr(2, 5)}`,
-            userName: names[Math.floor(Math.random() * names.length)],
-            amount: auction.currentBid + increment,
-            time: new Date().toISOString(),
-          }
-          auction.currentBid = newBid.amount
-          auction.totalBids++
-          auction.bids = [newBid, ...bids.slice(0, 19)]
-          updated[i] = auction
-        }
-
-        return updated
-      })
-    }, 4000 + Math.random() * 6000)
-
-    return () => clearInterval(intervalRef.current)
-  }, [])
-
-  const getAuction = useCallback((id) => {
-    return auctions.find(a => a.id === id) || null
-  }, [auctions])
-
-  const placeBid = useCallback((auctionId, userId, userName, amount) => {
-    let success = false
-    setAuctions(prev => {
-      const updated = [...prev]
-      const i = updated.findIndex(a => a.id === auctionId)
-      if (i === -1) return prev
-
-      const auction = { ...updated[i] }
-      if (amount <= auction.currentBid) return prev
-      if (auction.status !== 'live') return prev
-
-      const newBid = {
-        id: `b_${Date.now()}`,
-        userId, userName, amount,
-        time: new Date().toISOString(),
-      }
-
-      auction.currentBid = amount
-      auction.totalBids++
-      auction.bids = [newBid, ...auction.bids.slice(0, 19)]
-      updated[i] = auction
-      success = true
-      return updated
-    })
-    return success
-  }, [])
-
-  const addAuction = useCallback((auctionData) => {
-    const newAuction = {
-      id: `a_${Date.now()}`,
-      ...auctionData,
-      currentBid: auctionData.startingPrice,
-      totalBids: 0,
-      watchers: 0,
-      winner: null,
-      bids: [],
+  // ── Fetch auctions from API ────────────────────────────────────────────────
+  const fetchAuctions = useCallback(async () => {
+    try {
+      const data = await auctionsApi.list()
+      setAuctions(data.map(normalise))
+    } catch (err) {
+      console.error('Failed to fetch auctions:', err.message)
+    } finally {
+      setLoading(false)
     }
-    setAuctions(prev => [newAuction, ...prev])
-    return newAuction
   }, [])
 
-  const updateAuctionStatus = useCallback((auctionId, status) => {
-    setAuctions(prev => prev.map(a => a.id === auctionId ? { ...a, status } : a))
+  useEffect(() => { fetchAuctions() }, [fetchAuctions])
+
+  // ── Socket.io real-time updates ────────────────────────────────────────────
+  useEffect(() => {
+    const socket = socketIO(SOCKET_URL, { transports: ['websocket', 'polling'] })
+    socketRef.current = socket
+
+    socket.on('bid:new', ({ auctionId, amount, userName, userId, time }) => {
+      setAuctions(prev => prev.map(a => {
+        if (a._id !== auctionId && a.id !== auctionId) return a
+        const newBid = { id: `b_${Date.now()}`, userId, userName, amount, time }
+        return {
+          ...a,
+          currentBid: amount,
+          totalBids: a.totalBids + 1,
+          bids: [newBid, ...(a.bids || []).slice(0, 19)],
+        }
+      }))
+    })
+
+    socket.on('auction:new', (auction) => {
+      setAuctions(prev => [normalise(auction), ...prev])
+      addNotification?.({ type: 'info', message: `New auction: ${auction.title}` })
+    })
+
+    socket.on('auction:updated', (auction) => {
+      setAuctions(prev => prev.map(a =>
+        (a._id === auction._id || a.id === auction._id) ? normalise(auction) : a
+      ))
+    })
+
+    socket.on('auction:status', ({ id, status, endTime }) => {
+      setAuctions(prev => prev.map(a => {
+        if (a._id !== id && a.id !== id) return a
+        return { ...a, status, ...(endTime ? { endTime } : {}) }
+      }))
+    })
+
+    socket.on('auction:ended', ({ id, winner, finalBid }) => {
+      setAuctions(prev => prev.map(a => {
+        if (a._id !== id && a.id !== id) return a
+        return { ...a, status: 'ended', winner, currentBid: finalBid ?? a.currentBid }
+      }))
+      if (winner) addNotification?.({ type: 'success', message: `Auction ended — won by ${winner.userName}` })
+    })
+
+    socket.on('auction:deleted', ({ id }) => {
+      setAuctions(prev => prev.filter(a => a._id !== id && a.id !== id))
+    })
+
+    return () => socket.disconnect()
+  }, [addNotification])
+
+  // ── Normalise helper (map _id → id for UI compatibility) ──────────────────
+  function normalise(a) {
+    if (!a) return null
+    return {
+      ...a,
+      id: a._id || a.id,
+      currentBid: a.currentBid || a.startingPrice,
+      totalBids: a.bids?.length || 0,
+      bids: (a.bids || []).map(b => ({
+        ...b,
+        id: b._id || b.id,
+        userId: b.bidder || b.userId,
+        userName: b.bidderName || b.userName,
+        time: b.time || b.timestamp
+      }))
+    }
+  }
+
+  // ── Selectors ─────────────────────────────────────────────────────────────
+  const getAuction = useCallback((id) =>
+    auctions.find(a => a._id === id || a.id === id) || null,
+  [auctions])
+
+  // ── Place bid (calls API, socket does the state update) ───────────────────
+  const placeBid = useCallback(async (auctionId, _userId, _userName, amount) => {
+    const result = await bidsApi.place(auctionId, amount)
+    return result  // { bid, newBalance }
   }, [])
 
-  const extendAuction = useCallback((auctionId, minutes) => {
-    setAuctions(prev => prev.map(a => {
-      if (a.id !== auctionId) return a
-      const newEnd = new Date(new Date(a.endTime).getTime() + minutes * 60000).toISOString()
-      return { ...a, endTime: newEnd }
-    }))
+  // ── Admin helpers (call API; socket broadcasts back to update state) ───────
+  const addAuction = useCallback(async (auctionData) => {
+    const auction = await auctionsApi.create(auctionData)
+    return normalise(auction)
   }, [])
 
+  const updateAuction = useCallback(async (id, data) => {
+    const auction = await auctionsApi.update(id, data)
+    return normalise(auction)
+  }, [])
+
+  const deleteAuction = useCallback(async (id) => {
+    await auctionsApi.delete(id)
+  }, [])
+
+  const updateAuctionStatus = useCallback(async (auctionId, status) => {
+    await auctionsApi.setStatus(auctionId, status)
+  }, [])
+
+  const extendAuction = useCallback(async (auctionId, minutes) => {
+    await auctionsApi.setStatus(auctionId, undefined, minutes)
+  }, [])
+
+  const joinAuctionRoom = useCallback((auctionId) => {
+    socketRef.current?.emit('join_auction', auctionId)
+  }, [])
+
+  const leaveAuctionRoom = useCallback((auctionId) => {
+    socketRef.current?.emit('leave_auction', auctionId)
+  }, [])
+
+  // ── Derived stats ─────────────────────────────────────────────────────────
   const stats = {
-    total: auctions.length,
-    live: auctions.filter(a => a.status === 'live').length,
-    upcoming: auctions.filter(a => a.status === 'upcoming').length,
-    ended: auctions.filter(a => a.status === 'ended').length,
-    totalRevenue: auctions
-      .filter(a => a.status === 'ended')
-      .reduce((sum, a) => sum + a.currentBid, 0),
-    totalBids: auctions.reduce((sum, a) => sum + a.totalBids, 0),
+    total:        auctions.length,
+    live:         auctions.filter(a => a.status === 'live').length,
+    upcoming:     auctions.filter(a => a.status === 'upcoming').length,
+    ended:        auctions.filter(a => a.status === 'ended').length,
+    totalRevenue: auctions.filter(a => a.status === 'ended').reduce((s, a) => s + a.currentBid, 0),
+    totalBids:    auctions.reduce((s, a) => s + a.totalBids, 0),
   }
 
   return (
     <AuctionContext.Provider value={{
-      auctions, getAuction, placeBid, addAuction,
-      updateAuctionStatus, extendAuction, stats,
+      auctions, loading, getAuction, placeBid, addAuction,
+      updateAuction, deleteAuction,
+      updateAuctionStatus, extendAuction,
+      joinAuctionRoom, leaveAuctionRoom,
+      stats, refresh: fetchAuctions,
     }}>
       {children}
     </AuctionContext.Provider>

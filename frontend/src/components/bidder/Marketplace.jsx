@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { Search, Filter, Eye, Gavel, Clock, TrendingUp, Flame, Sparkles } from 'lucide-react'
+import { Search, Filter, Eye, Gavel, Clock, TrendingUp, Flame, Sparkles, Bot, Zap, Shield, ChevronRight } from 'lucide-react'
 import { useAuctions } from '../../contexts/AuctionContext'
+import { useAuth } from '../../contexts/AuthContext'
 import { formatCurrency, getCountdown, getAISuggestion } from '../../lib/mock-data'
 
 function CountdownTimer({ endTime, status }) {
@@ -15,10 +16,7 @@ function CountdownTimer({ endTime, status }) {
   }, [endTime, status])
 
   if (status === 'ended') return <span className="text-gray-500 text-xs">Ended</span>
-  if (status === 'upcoming') {
-    const start = getCountdown(new Date(endTime).getTime() - 4 * 3600000)
-    return <span className="text-amber-400 text-xs font-mono">Starts soon</span>
-  }
+  if (status === 'upcoming') return <span className="text-amber-400 text-xs font-mono">Starts soon</span>
   if (countdown.expired) return <span className="text-red-400 text-xs">Ending...</span>
 
   const urgent = countdown.hours === 0 && countdown.minutes < 30
@@ -46,7 +44,6 @@ function AuctionCard({ auction, index }) {
       className="card card-hover cursor-pointer group overflow-hidden"
       onClick={() => auction.status === 'live' || auction.status === 'upcoming' ? navigate(`/auction/${auction.id}`) : null}
     >
-      {/* Image */}
       <div className="relative h-44 bg-gray-800 overflow-hidden">
         <img
           src={auction.image}
@@ -64,7 +61,7 @@ function AuctionCard({ auction, index }) {
         <div className="absolute top-3 right-3 flex flex-col items-end gap-1.5">
           <div className="bg-gray-900/80 backdrop-blur-sm rounded-full px-2 py-1 flex items-center gap-1">
             <Eye className="w-3 h-3 text-gray-400" />
-            <span className="text-[10px] text-gray-300">{auction.watchers}</span>
+            <span className="text-[10px] text-gray-300">{auction.watchers || 0}</span>
           </div>
           {auction.status === 'live' && (
             <div className="bg-amber-500/20 backdrop-blur-sm border border-amber-500/30 rounded-full px-2 py-0.5 flex items-center gap-1 shadow-lg shadow-amber-500/10">
@@ -78,7 +75,7 @@ function AuctionCard({ auction, index }) {
         <div className="absolute bottom-3 left-3 right-3 flex items-end justify-between">
           <div>
             <p className="text-[10px] text-gray-400">Current Bid</p>
-            <p className="font-mono text-lg font-bold text-white">{formatCurrency(auction.currentBid)}</p>
+            <p className="font-mono text-lg font-bold text-white">{formatCurrency(auction.currentBid || auction.startingPrice)}</p>
           </div>
           <div className="text-right">
             <p className="text-[10px] text-gray-400">Time Left</p>
@@ -87,18 +84,14 @@ function AuctionCard({ auction, index }) {
         </div>
       </div>
 
-      {/* Info */}
       <div className="p-4">
         <span className="text-[10px] text-gray-500 uppercase tracking-wider">{auction.category}</span>
         <h3 className="font-semibold text-white text-sm mt-1 mb-3 line-clamp-2 leading-snug">{auction.title}</h3>
         <div className="flex items-center justify-between text-xs text-gray-500">
           <div className="flex items-center gap-1">
             <Gavel className="w-3 h-3" />
-            <span>{auction.totalBids} bids</span>
+            <span>{auction.totalBids || 0} bids</span>
           </div>
-          {auction.winner && (
-            <span className="text-emerald-400 font-medium">You won! 🎉</span>
-          )}
           {auction.status === 'live' && (
             <button
               onClick={e => { e.stopPropagation(); navigate(`/auction/${auction.id}`) }}
@@ -113,16 +106,39 @@ function AuctionCard({ auction, index }) {
   )
 }
 
+// Feature highlight card — clickable and takes user to the right section
+function FeatureCard({ icon: Icon, title, desc, gradient, onClick }) {
+  return (
+    <motion.button
+      whileHover={{ scale: 1.02, y: -2 }}
+      whileTap={{ scale: 0.98 }}
+      onClick={onClick}
+      className={`w-full text-left p-4 rounded-2xl border border-white/5 ${gradient} flex items-start gap-4 group transition-all`}
+    >
+      <div className="w-10 h-10 rounded-xl bg-black/20 flex items-center justify-center flex-shrink-0 group-hover:scale-110 transition-transform">
+        <Icon className="w-5 h-5 text-white" />
+      </div>
+      <div className="flex-1 min-w-0">
+        <p className="font-bold text-white text-sm">{title}</p>
+        <p className="text-white/60 text-xs mt-0.5 leading-relaxed">{desc}</p>
+      </div>
+      <ChevronRight className="w-4 h-4 text-white/30 group-hover:text-white/70 flex-shrink-0 mt-3 transition-colors" />
+    </motion.button>
+  )
+}
+
 export default function Marketplace() {
   const { auctions } = useAuctions()
+  const { user } = useAuth()
+  const navigate = useNavigate()
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState('all')
   const [category, setCategory] = useState('all')
 
-  const categories = ['all', ...new Set(auctions.map(a => a.category))]
+  const categories = ['all', ...new Set(auctions.map(a => a.category).filter(Boolean))]
 
   const filtered = auctions.filter(a => {
-    const matchSearch = a.title.toLowerCase().includes(search.toLowerCase())
+    const matchSearch = a.title?.toLowerCase().includes(search.toLowerCase())
     const matchStatus = filter === 'all' || a.status === filter
     const matchCat = category === 'all' || a.category === category
     return matchSearch && matchStatus && matchCat
@@ -144,6 +160,42 @@ export default function Marketplace() {
             <span className="text-red-400 text-sm font-medium">{liveAuctions.length} live now</span>
           </div>
         )}
+      </div>
+
+      {/* ── Feature Highlights (always visible after login) ── */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <FeatureCard
+          icon={Bot}
+          title="AI Smart Advisor"
+          desc="Win probability & optimal bid recommendations"
+          gradient="bg-gradient-to-br from-violet-600/30 to-purple-900/20"
+          onClick={() => {
+            // Navigate to the first live auction to see the SmartBidPanel
+            if (liveAuctions.length > 0) {
+              navigate(`/auction/${liveAuctions[0].id}`)
+            } else {
+              navigate('/my-auctions')
+            }
+          }}
+        />
+        <FeatureCard
+          icon={Zap}
+          title="Real-time Bidding"
+          desc="Instant bid updates via live auction feeds"
+          gradient="bg-gradient-to-br from-amber-600/30 to-orange-900/20"
+          onClick={() => {
+            if (liveAuctions.length > 0) {
+              navigate(`/auction/${liveAuctions[0].id}`)
+            }
+          }}
+        />
+        <FeatureCard
+          icon={Shield}
+          title="Secure Wallet"
+          desc="Credits system with full transaction history"
+          gradient="bg-gradient-to-br from-emerald-600/30 to-teal-900/20"
+          onClick={() => navigate('/wallet')}
+        />
       </div>
 
       {/* Filters */}
@@ -200,7 +252,7 @@ export default function Marketplace() {
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
           {filtered.map((auction, i) => (
-            <AuctionCard key={auction.id} auction={auction} index={i} />
+            <AuctionCard key={auction.id || auction._id} auction={auction} index={i} />
           ))}
         </div>
       )}

@@ -1,9 +1,10 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Wallet as WalletIcon, Plus, ArrowUpRight, ArrowDownLeft, CreditCard, Smartphone, Building2, CheckCircle, History } from 'lucide-react'
+import { Wallet as WalletIcon, Plus, ArrowUpRight, ArrowDownLeft, CreditCard, Smartphone, Building2, CheckCircle, History, Loader2 } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
 import { useNotifications } from '../../contexts/NotificationContext'
-import { formatCurrency, formatDate, MOCK_TRANSACTIONS } from '../../lib/mock-data'
+import { formatCurrency, formatDate } from '../../lib/mock-data'
+import { usersApi } from '../../lib/api'
 
 const PACKAGES = [
   { amount: 10000, label: '₹10,000', bonus: 0, popular: false },
@@ -23,34 +24,56 @@ const METHODS = [
 export default function Wallet() {
   const { user, updateCredits } = useAuth()
   const { addNotification } = useNotifications()
-  const [transactions, setTransactions] = useState(() => [...MOCK_TRANSACTIONS])
+  const [transactions, setTransactions] = useState([])
+  const [fetchingTxs, setFetchingTxs] = useState(true)
   const [selectedPkg, setSelectedPkg] = useState(null)
   const [selectedMethod, setSelectedMethod] = useState('upi')
   const [step, setStep] = useState('select') // select | confirm | success
   const [loading, setLoading] = useState(false)
 
+  const fetchTxs = async () => {
+    try {
+      const data = await usersApi.myTransactions()
+      setTransactions(data)
+    } catch (err) {
+      console.error('Failed to fetch transactions:', err)
+    } finally {
+      setFetchingTxs(false)
+    }
+  }
+
+  useEffect(() => {
+    if (user) fetchTxs()
+  }, [user])
+
   const handlePurchase = async () => {
     if (!selectedPkg) return
     setLoading(true)
-    await new Promise(r => setTimeout(r, 1500))
-    const total = selectedPkg.amount + selectedPkg.bonus
-    updateCredits(total)
-    const newTx = {
-      id: `t_${Date.now()}`,
-      type: 'credit',
-      amount: total,
-      description: `Wallet top-up via ${selectedMethod.toUpperCase()}${selectedPkg.bonus ? ` (+₹${selectedPkg.bonus.toLocaleString('en-IN')} bonus)` : ''}`,
-      time: new Date().toISOString(),
+    try {
+      const total = selectedPkg.amount + selectedPkg.bonus
+      const { credits } = await usersApi.topUp(total, selectedMethod)
+      
+      updateCredits(total) // Optimistic logic is actually handled by updating the local user state
+      
+      setStep('success')
+      addNotification({
+        type: 'winning',
+        title: 'Credits Added!',
+        message: `${formatCurrency(total)} added to your wallet.`,
+      })
+      
+      // Refresh transactions
+      fetchTxs()
+
+      setTimeout(() => { 
+        setStep('select')
+        setSelectedPkg(null) 
+      }, 3000)
+    } catch (err) {
+      addNotification({ type: 'warning', title: 'Payment Failed', message: err.message })
+    } finally {
+      setLoading(false)
     }
-    setTransactions(prev => [newTx, ...prev])
-    setStep('success')
-    setLoading(false)
-    addNotification({
-      type: 'winning',
-      title: 'Credits Added!',
-      message: `${formatCurrency(total)} added to your wallet.`,
-    })
-    setTimeout(() => { setStep('select'); setSelectedPkg(null) }, 3000)
   }
 
   const totalDebits = transactions.filter(t => t.type === 'debit').reduce((s, t) => s + t.amount, 0)
@@ -74,7 +97,9 @@ export default function Wallet() {
               </div>
               <p className="text-sm text-gray-400">Available Balance</p>
             </div>
-            <p className="font-mono text-3xl font-bold text-amber-400">{formatCurrency(user?.credits || 0)}</p>
+            <p className="font-mono text-3xl font-bold text-amber-400">
+              {formatCurrency(user?.credits || 0)}
+            </p>
           </div>
         </div>
         <div className="card p-5">
@@ -220,7 +245,7 @@ export default function Wallet() {
                 </button>
 
                 <p className="text-center text-xs text-gray-600">
-                  Demo mode — no real payment processing
+                  Demo mode — using real backend top-up API
                 </p>
               </motion.div>
             )}
@@ -233,29 +258,38 @@ export default function Wallet() {
             <History className="w-4 h-4 text-amber-400" /> Transactions
           </h2>
           <div className="space-y-3">
-            {transactions.map(tx => (
-              <div key={tx.id} className="flex items-start gap-3 py-2 border-b border-gray-800/50 last:border-0">
-                <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${
-                  tx.type === 'credit' ? 'bg-emerald-500/10' : 'bg-red-500/10'
-                }`}>
-                  {tx.type === 'credit'
-                    ? <ArrowDownLeft className="w-4 h-4 text-emerald-400" />
-                    : <ArrowUpRight className="w-4 h-4 text-red-400" />}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-xs text-white font-medium leading-snug">{tx.description}</p>
-                  <p className="text-[10px] text-gray-500 mt-0.5">{formatDate(tx.time)}</p>
-                </div>
-                <p className={`font-mono text-sm font-bold flex-shrink-0 ${
-                  tx.type === 'credit' ? 'text-emerald-400' : 'text-red-400'
-                }`}>
-                  {tx.type === 'credit' ? '+' : '-'}{formatCurrency(tx.amount)}
-                </p>
+            {fetchingTxs ? (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="w-5 h-5 text-amber-400 animate-spin" />
               </div>
-            ))}
+            ) : transactions.length === 0 ? (
+              <p className="text-center text-gray-500 py-8 text-xs">No transactions found</p>
+            ) : (
+              transactions.map(tx => (
+                <div key={tx._id || tx.id} className="flex items-start gap-3 py-2 border-b border-gray-800/50 last:border-0">
+                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${
+                    tx.type === 'credit' ? 'bg-emerald-500/10' : 'bg-red-500/10'
+                  }`}>
+                    {tx.type === 'credit'
+                      ? <ArrowDownLeft className="w-4 h-4 text-emerald-400" />
+                      : <ArrowUpRight className="w-4 h-4 text-red-400" />}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs text-white font-medium leading-snug">{tx.description}</p>
+                    <p className="text-[10px] text-gray-500 mt-0.5">{formatDate(tx.createdAt || tx.time)}</p>
+                  </div>
+                  <p className={`font-mono text-sm font-bold flex-shrink-0 ${
+                    tx.type === 'credit' ? 'text-emerald-400' : 'text-red-400'
+                  }`}>
+                    {tx.type === 'credit' ? '+' : '-'}{formatCurrency(tx.amount)}
+                  </p>
+                </div>
+              ))
+            )}
           </div>
         </div>
       </div>
     </div>
   )
 }
+

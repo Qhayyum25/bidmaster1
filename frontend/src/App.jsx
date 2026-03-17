@@ -6,6 +6,7 @@ import Marketplace from './components/bidder/Marketplace'
 import LiveAuction from './components/bidder/LiveAuction'
 import Wallet from './components/bidder/Wallet'
 import MyAuctions from './components/bidder/MyAuctions'
+import Profile from './components/bidder/Profile'
 import AdminDashboard from './components/admin/AdminDashboard'
 import ItemManagement from './components/admin/ItemManagement'
 import UserManagement from './components/admin/UserManagement'
@@ -42,12 +43,14 @@ export default function App() {
           <Route path="auction/:id" element={<LiveAuction />} />
           <Route path="wallet" element={<Wallet />} />
           <Route path="my-auctions" element={<MyAuctions />} />
-          {/* Admin routes */}
-          <Route path="admin" element={<ProtectedRoute adminOnly><AdminDashboard /></ProtectedRoute>} />
+          <Route path="profile" element={<Profile />} />
+          {/* Routes open to all logged-in users */}
+          <Route path="admin" element={<ProtectedRoute><AdminDashboard /></ProtectedRoute>} />
+          <Route path="admin/reports" element={<ProtectedRoute><Reports /></ProtectedRoute>} />
+          {/* Admin-only routes */}
           <Route path="admin/items" element={<ProtectedRoute adminOnly><ItemManagement /></ProtectedRoute>} />
           <Route path="admin/users" element={<ProtectedRoute adminOnly><UserManagement /></ProtectedRoute>} />
           <Route path="admin/control" element={<ProtectedRoute adminOnly><AuctionControl /></ProtectedRoute>} />
-          <Route path="admin/reports" element={<ProtectedRoute adminOnly><Reports /></ProtectedRoute>} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

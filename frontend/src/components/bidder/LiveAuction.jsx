@@ -114,7 +114,7 @@ export default function LiveAuction() {
       addNotification({ type: 'warning', title: 'Invalid Bid', message: 'Please enter a valid bid amount.' })
       return
     }
-    if (amount <= auction.currentBid) {
+    if (amount <= (auction.currentBid || 0)) {
       addNotification({ type: 'warning', title: 'Bid Too Low', message: `Bid must exceed ${formatCurrency(auction.currentBid)}` })
       return
     }
@@ -122,15 +122,18 @@ export default function LiveAuction() {
       addNotification({ type: 'warning', title: 'Insufficient Credits', message: `You need ${formatCurrency(amount - user.credits)} more credits.` })
       return
     }
+
     setBidding(true)
-    await new Promise(r => setTimeout(r, 400))
-    const ok = placeBid(auction.id, user.id, user.name, amount)
-    if (ok) {
-      updateCredits(-amount)
+    try {
+      const { newBalance } = await placeBid(auction.id, user.id, user.name, amount)
+      updateCredits(newBalance - user.credits) // Sync balance change
       addNotification({ type: 'winning', title: 'Bid Placed!', message: `You bid ${formatCurrency(amount)} on ${auction.title}` })
       setCustomBid('')
+    } catch (err) {
+      addNotification({ type: 'warning', title: 'Bid Failed', message: err.message })
+    } finally {
+      setBidding(false)
     }
-    setBidding(false)
   }, [auction, user, placeBid, updateCredits, addNotification])
 
   if (!auction) return (

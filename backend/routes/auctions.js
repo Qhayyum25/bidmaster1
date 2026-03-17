@@ -42,7 +42,7 @@ router.post('/', auth, adminOnly, async (req, res) => {
 // PUT /api/auctions/:id (admin)
 router.put('/:id', auth, adminOnly, async (req, res) => {
   try {
-    const auction = await Auction.findByIdAndUpdate(req.params.id, req.body, { new: true })
+    const auction = await Auction.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true })
     if (!auction) return res.status(404).json({ error: 'Auction not found' })
     req.io.to(`auction:${req.params.id}`).emit('auction:updated', auction)
     res.json(auction)
@@ -51,18 +51,42 @@ router.put('/:id', auth, adminOnly, async (req, res) => {
   }
 })
 
-// PATCH /api/auctions/:id/status (admin)
+// PATCH /api/auctions/:id/status (admin) — change status or extend time
 router.patch('/:id/status', auth, adminOnly, async (req, res) => {
   try {
     const { status, extendMinutes } = req.body
-    const update = { status }
+    const update = {}
+    if (status) update.status = status
+
     if (extendMinutes) {
       const auction = await Auction.findById(req.params.id)
+      if (!auction) return res.status(404).json({ error: 'Auction not found' })
       update.endTime = new Date(new Date(auction.endTime).getTime() + extendMinutes * 60000)
     }
+
     const auction = await Auction.findByIdAndUpdate(req.params.id, update, { new: true })
-    req.io.to(`auction:${req.params.id}`).emit('auction:status', { id: req.params.id, status, endTime: update.endTime })
+    if (!auction) return res.status(404).json({ error: 'Auction not found' })
+
+    req.io.to(`auction:${req.params.id}`).emit('auction:status', {
+      id: req.params.id,
+      status: auction.status,
+      endTime: auction.endTime,
+    })
     res.json(auction)
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// DELETE /api/auctions/:id (admin)
+router.delete('/:id', auth, adminOnly, async (req, res) => {
+  try {
+    const auction = await Auction.findByIdAndDelete(req.params.id)
+    if (!auction) return res.status(404).json({ error: 'Auction not found' })
+    // Also remove associated bids
+    await Bid.deleteMany({ auctionId: req.params.id })
+    req.io.emit('auction:deleted', { id: req.params.id })
+    res.json({ message: 'Auction deleted' })
   } catch (err) {
     res.status(500).json({ error: err.message })
   }

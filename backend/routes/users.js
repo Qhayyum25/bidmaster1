@@ -12,6 +12,21 @@ router.get('/me/transactions', auth, async (req, res) => {
   }
 })
 
+// PATCH /api/users/me (profile update)
+router.patch('/me', auth, async (req, res) => {
+  try {
+    const { name, email } = req.body
+    const update = {}
+    if (name) update.name = name
+    if (email) update.email = email.toLowerCase()
+
+    const user = await User.findByIdAndUpdate(req.user.id, update, { new: true }).select('-password')
+    res.json(user)
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
 // POST /api/users/me/topup
 router.post('/me/topup', auth, async (req, res) => {
   try {
